@@ -13,6 +13,11 @@ import (
 	"math"
 	"os"
 	"sort"
+	"net/http"
+	"time"
+	"context"
+	"syscall"
+	"os/signal"
 
 	"github.com/kelseyhightower/envconfig"
 	"github.com/nfnt/resize"
@@ -24,6 +29,7 @@ import (
 	"golang.org/x/image/math/fixed"
 	"gorgonia.org/tensor"
 	"gorgonia.org/tensor/native"
+	"github.com/gin-gonic/gin"
 )
 
 // The 416x416 image is divided into a 13x13 grid. Each of these grid cells
@@ -88,14 +94,61 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// Decode it into the model
 	must(m.UnmarshalBinary(b))
 
-	m.SetInput(0, getInput())
-	must(backend.Run())
-	processOutput(m.GetOutputTensors())
 
+	// Set up Gin router
+	r := gin.Default()
+
+	// Register the handler for the /model endpoint
+	r.GET("/detect", handler(m, backend))
+
+	// Create an HTTP server to manage graceful shutdown
+	server := &http.Server{
+		Addr:    ":8080",
+		Handler: r,
+	}
+
+	// Set up a channel to listen for termination signals (e.g., SIGINT, SIGTERM)
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+
+	// Start the server in a goroutine
+	go func() {
+		log.Println("Starting server on port 8080...")
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("ListenAndServe error: %v", err)
+		}
+	}()
+
+
+	// Wait for termination signal
+	sigReceived := <-stop
+	log.Printf("Received signal %s, shutting down gracefully...", sigReceived)
+
+	// Gracefully shut down the server
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatalf("Server shutdown error: %v", err)
+	}
+
+	log.Println("Server gracefully stopped")
 }
+
+func handler(m *onnx.Model, backend *gorgonnx.Graph) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		m.SetInput(0, getInput())
+		must(backend.Run())
+		processOutput(m.GetOutputTensors())
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": "ONNX Model loaded successfully",
+		})
+	}
+}
+
 
 func getInput() tensor.Tensor {
 	if *imgF == "" {
