@@ -144,7 +144,7 @@ func handler(m *onnx.Model, backend *gorgonnx.Graph) gin.HandlerFunc {
 		processOutput(m.GetOutputTensors())
 
 		c.JSON(http.StatusOK, gin.H{
-			"message": "ONNX Model loaded successfully",
+			"message": "detect request ran successfully",
 		})
 	}
 }
@@ -267,13 +267,13 @@ func printClassification(boxes []box) {
 	for _, box := range boxes {
 		if box.classes[0].prob > config.ConfidenceThreshold {
 			elements = append(elements, box.classes...)
-			//fmt.Printf("at (%v) with confidence %2.2f%%: %v\n", box.r, box.confidence, box.classes[:3])
+			fmt.Printf("at (%v) with confidence %2.2f%%: %v\n", box.r, box.confidence, box.classes[:3])
 		}
 	}
 	sort.Sort(sort.Reverse(byProba(elements)))
 	for _, c := range elements {
 		if c.prob > 0.4 {
-			//fmt.Println(c)
+			fmt.Println(c)
 		}
 	}
 
